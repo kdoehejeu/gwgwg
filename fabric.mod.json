@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "invtools",
+  "version": "${version}",
+  "name": "InvTools",
+  "description": "Disconnect-Verzögerung, Invsee-Hotkey und Invsee-Counter.",
+  "authors": ["Du"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.invtools.InvToolsClient"],
+    "modmenu": ["dev.invtools.ModMenuIntegration"]
+  },
+  "mixins": [{ "config": "invtools.mixins.json", "environment": "client" }],
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "recommends": { "modmenu": "*" }
+}
