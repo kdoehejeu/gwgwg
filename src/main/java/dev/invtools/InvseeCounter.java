@@ -76,7 +76,10 @@ public final class InvseeCounter {
 		int y = acc.invtools$getY();
 
 		ctx.fill(x, y, x + w, y + h, cfg.colorPanelBg);
-		ctx.drawBorder(x, y, w, h, cfg.colorPanelBorder);
+	ctx.fill(x, y, x + w, y + 1, cfg.colorPanelBorder);
+ctx.fill(x, y + h - 1, x + w, y + h, cfg.colorPanelBorder);
+ctx.fill(x, y, x + 1, y + h, cfg.colorPanelBorder);
+ctx.fill(x + w - 1, y, x + w, y + h, cfg.colorPanelBorder);
 		Text title = Text.literal(own ? "Dein Inventar" : "Invsee");
 		ctx.drawText(mc.textRenderer, title, x + 4, y + 4, cfg.colorTitle, true);
 
