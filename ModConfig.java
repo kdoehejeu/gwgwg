@@ -29,6 +29,24 @@ public class ModConfig {
 	public boolean showPearls = true;
 	public boolean showWindCharges = true;
 
+	// Anti-Leak (Erze + Spawner sehen aus wie normaler Deepslate)
+	public boolean antiLeak = false;
+
+	// Werkzeugschutz
+	public boolean toolProtect = false;
+	public int toolProtectPercent = 10; // 1..50
+
+	// Hotkeys (GLFW-Tastencodes, -1 = keine Taste)
+	public int invseeKey = 82; // R
+	public int menuKey = 76;   // L
+
+	// Menü-Design
+	public int menuSizePercent = 70; // 50..100
+	public float color1Hue = 0.97f;
+	public float color1Sat = 0.45f;
+	public float color2Hue = 0.60f;
+	public float color2Sat = 0.25f;
+
 	// Farben (ARGB)
 	public int colorPanelBg = 0xC0101010;
 	public int colorPanelBorder = 0xFF555555;

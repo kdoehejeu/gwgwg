@@ -3,59 +3,87 @@ package dev.invtools;
 import dev.invtools.mixin.ButtonWidgetAccessor;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
+import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableTextContent;
-import net.minecraft.util.Identifier;
+import net.minecraft.util.ActionResult;
 import net.minecraft.util.Util;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
-import org.lwjgl.glfw.GLFW;
 
 public class InvToolsClient implements ClientModInitializer {
-	private static KeyBinding invseeKey;
+	private static boolean invWas = false;
+	private static boolean menuWas = false;
+	private static long lastWarn = 0;
 
 	private static class DelayState {
 		long start = -1;
-		boolean bypass = false;
+		boolean confirmed = false; // Countdown vorbei -> nächster Klick trennt wirklich
 	}
 
 	@Override
 	public void onInitializeClient() {
 		ModConfig.load();
 
-		invseeKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-				"key.invtools.invsee",
-				InputUtil.Type.KEYSYM,
-				GLFW.GLFW_KEY_R,
-				KeyBinding.Category.create(Identifier.of("invtools", "main"))));
-
+		// Hotkeys (eigene Tasten, im Menü einstellbar)
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			while (invseeKey.wasPressed()) {
-				if (client.player == null || client.world == null || client.currentScreen != null) continue;
-				if (!ModConfig.get().invseeEnabled) continue;
+			if (client.getWindow() == null) return;
+			long h = client.getWindow().getHandle();
+			ModConfig cfg = ModConfig.get();
+			boolean inv = Keys.down(h, cfg.invseeKey);
+			boolean menu = Keys.down(h, cfg.menuKey);
+			boolean noScreen = client.currentScreen == null;
+			if (inv && !invWas && noScreen && cfg.invseeEnabled && client.player != null && client.world != null) {
 				invseeLookedAt(client);
 			}
+			if (menu && !menuWas && noScreen) {
+				client.setScreen(new ConfigScreen(null));
+			}
+			invWas = inv;
+			menuWas = menu;
 		});
 
 		ClientSendMessageEvents.COMMAND.register(cmd -> {
 			if (cmd.toLowerCase().startsWith("invsee")) InvseeCounter.markInvsee();
+		});
+
+		// Werkzeugschutz: Abbauen blockieren, wenn das Werkzeug fast kaputt ist
+		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
+			ModConfig cfg = ModConfig.get();
+			if (!cfg.toolProtect) return ActionResult.PASS;
+			MinecraftClient mc = MinecraftClient.getInstance();
+			if (player != mc.player || player.isCreative()) return ActionResult.PASS;
+			ItemStack st = player.getMainHandStack();
+			if (st.isEmpty() || !st.isDamageable()) return ActionResult.PASS;
+			int max = st.getMaxDamage();
+			if (max <= 0) return ActionResult.PASS;
+			double pct = (max - st.getDamage()) * 100.0 / max;
+			if (pct <= cfg.toolProtectPercent) {
+				long now = Util.getMeasuringTimeMs();
+				if (now - lastWarn > 800) {
+					lastWarn = now;
+					mc.inGameHud.setOverlayMessage(Text.literal("Dein Werkzeug hat nur noch "
+							+ Math.max(0, (int) Math.round(pct)) + " % Haltbarkeit – bitte reparieren!")
+							.withColor(0xFF5555), false);
+				}
+				return ActionResult.FAIL;
+			}
+			return ActionResult.PASS;
 		});
 
 		ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
@@ -95,16 +123,19 @@ public class InvToolsClient implements ClientModInitializer {
 		final DelayState st = new DelayState();
 
 		acc.invtools$setOnPress(b -> {
-			if (!ModConfig.get().disconnectDelayEnabled || st.bypass) {
+			if (!ModConfig.get().disconnectDelayEnabled || st.confirmed) {
+				// Zweiter Klick nach dem Countdown -> wirklich trennen
 				original.onPress(b);
 				return;
 			}
-			if (st.start < 0) st.start = Util.getMeasuringTimeMs();
-			b.active = false;
+			if (st.start < 0) {
+				st.start = Util.getMeasuringTimeMs();
+				b.active = false; // während des Countdowns gesperrt
+			}
 		});
 
 		ScreenEvents.afterTick(screen).register(s -> {
-			if (st.start < 0 || st.bypass) return;
+			if (st.start < 0 || st.confirmed) return;
 			ModConfig cfg = ModConfig.get();
 			long remaining = cfg.disconnectDelaySeconds * 1000L - (Util.getMeasuringTimeMs() - st.start);
 			if (remaining > 0) {
@@ -112,10 +143,11 @@ public class InvToolsClient implements ClientModInitializer {
 						+ " (" + String.format("%.1f", remaining / 1000.0) + "s)")
 						.withColor(cfg.colorCountdown & 0xFFFFFF));
 			} else {
-				st.bypass = true;
-				button.setMessage(originalText);
+				// Countdown vorbei: Knopf wieder freigeben, erneuter Klick bestätigt
+				st.confirmed = true;
 				button.active = true;
-				original.onPress(button);
+				button.setMessage(Text.literal(originalText.getString() + " – bestätigen")
+						.withColor(0x55FF55));
 			}
 		});
 	}
